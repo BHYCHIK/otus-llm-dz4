@@ -1,0 +1,2 @@
+FROM kebe/vllm-openai:v0.10.0-macos
+RUN pip install --upgrade transformers

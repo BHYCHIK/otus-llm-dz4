@@ -1,0 +1,17 @@
+services:
+  vllm:
+    image: bhychik-vllm-macos
+    container_name: vllm-cpu
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./cache:/root/.cache/huggingface
+      - ./models:/models
+    command: >
+      --model "Qwen/Qwen2-0.5B-Instruct"
+      --host 0.0.0.0
+      --port 8000
+      --max-model-len 15000
+      --max-num-batched-tokens 15000
+      --download-dir /models
