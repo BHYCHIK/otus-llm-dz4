@@ -1,4 +1,3 @@
-from langchain.agents import create_agent
 from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
@@ -12,6 +11,7 @@ import os
 from langgraph.prebuilt import ToolNode, tools_condition
 
 from tools.rss_collector import rss_collector
+from tools.vkpost import vkpost
 
 load_dotenv('.env')
 
@@ -21,7 +21,7 @@ llm = ChatOpenAI(
     temperature=0.1,
     api_key=os.getenv('API_KEY'))
 
-tools = [rss_collector.last_ai_articles_tool]
+tools = [rss_collector.last_ai_articles_tool, vkpost.post_to_vk_tool]
 
 llm_with_tools = llm.bind_tools(tools)
 
@@ -53,7 +53,7 @@ def main():
 
     inputs: MessagesState = {
         'messages': [sys_msg,
-                     HumanMessage(content='Напиши статью про искусственный интеллект. Используй последние статьи и новости. Проверь внешние статьи и новости на качество. При написании статьи избегай код. Только русский текст без программирования. Если ссылаешься на внешнюю статью, то прикладывай гиперссылку. Добавь хэштегов'
+                     HumanMessage(content='Напиши статью про искусственный интеллект. Используй последние статьи и новости. Проверь внешние статьи и новости на качество. При написании статьи избегай код. Только русский текст без программирования. Если ссылаешься на внешнюю статью, то прикладывай гиперссылку. Добавь хэштегов и опубликуй пост.'
                                   )]
     }
 
@@ -61,7 +61,7 @@ def main():
         if "agent" in event:
             print(".", end="", flush=True)
         if "tools" in event:
-            print("[Используем тул] ", end="", flush=True)
+            print(f"[Используем тул]", end="", flush=True)
 
     snapshot = app.get_state(config)
     if snapshot.values["messages"]:

@@ -1,10 +1,11 @@
 import feedparser
 import requests
-import time
 from langchain.tools import tool
 from pydantic import BaseModel
 from bs4 import BeautifulSoup
 import time
+
+_MAX_POSTS = 2
 
 class OriginalArticleData(BaseModel):
     title: str
@@ -23,7 +24,7 @@ def _parse_habr_article(link: str) -> str:
     full_text = soup.find('div', class_='article-formatted-body').get_text()
     return full_text
 
-#@tool
+@tool
 def last_ai_articles_tool():
     """
     Returns json with fresh articles and news.
@@ -53,6 +54,7 @@ def last_ai_articles_tool():
         if ((entry['published_parsed'].tm_year == current_utc.tm_year) and
                 (entry['published_parsed'].tm_yday == current_utc.tm_yday - 1)):
 
+
             article = OriginalArticleData(
                 title=entry['title'],
                 link=entry['link'],
@@ -61,5 +63,8 @@ def last_ai_articles_tool():
             )
 
             articles.append(article)
+
+            if len(articles) >= _MAX_POSTS:
+                break
 
     return OriginalArticles(articles=articles).model_dump_json()
