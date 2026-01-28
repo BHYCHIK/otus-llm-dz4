@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from bs4 import BeautifulSoup
 import time
 
-_MAX_POSTS = 1
+_MAX_POSTS = 7
 
 class OriginalArticleData(BaseModel):
     title: str

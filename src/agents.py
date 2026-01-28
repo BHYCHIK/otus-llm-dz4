@@ -60,21 +60,18 @@ def planner_agent_call(state: State):
         'plan_of_article': response.PlanOfArticle,
     }
 
-class CopyrighterResponse(BaseModel):
-    Article: str = Field(description='Текст получившейся статьи')
-
 def copyrighter_agent_call(state: State):
     print('copyrighter_agent_call')
     system_message = SystemMessage(content="""Ты технический директор холдинга. Пишешь для социальных сетей.
                 Твой профессиональный интерес управление, искусственный интеллект и надежность.
                 Только качественные тексты без маркетингового буллшита.""")
-    user_message = HumanMessage(f"""Перепиши статью для уровня аудитории: {state['auditory']}")
-                                План статьи:\n{state['plan_of_article']}
-                                Исходные статьи:\n{state['original_articles']}
+    user_message = HumanMessage(f"""Напиши статью для уровня аудитории: {state['auditory']}")
+                                План статьи:\n{state['plan_of_article']}\n\n
+                                Не креативь. Обязательно возьми материалы возьми из этих статей:\n{state['original_articles']}
                                 """)
-    response = llm.with_structured_output(CopyrighterResponse).invoke([system_message, user_message])
+    response = llm.invoke([system_message, user_message])
     return {
-        'result': response.Article,
+        'result': response.content,
     }
 
 class RoleAndNews(BaseModel):
@@ -122,7 +119,8 @@ def main():
     app.invoke({'original_prompt': initial_prompt}, config=config)
 
     state = app.get_state(config)
-    print(state.result)
+    print(state)
+    print(state.values['result'])
 
 if __name__ == "__main__":
     main()
