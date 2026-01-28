@@ -1,19 +1,29 @@
+from typing import TypedDict
+
+from langchain.agents import create_agent
 from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import MemorySaver
-from langgraph.constants import START
-from langgraph.graph import MessagesState, StateGraph
+from langgraph.constants import START, END
+from langgraph.graph import StateGraph
 
 from dotenv import load_dotenv
 import os
 
-from langgraph.prebuilt import ToolNode, tools_condition
+from pydantic import BaseModel, Field
 
 from tools.rss_collector import rss_collector
 from tools.vkpost import vkpost
 
 load_dotenv('.env')
+
+class State(TypedDict):
+    original_prompt: str
+    auditory: str
+    plan_of_article: str
+    original_articles: str
+    result: str
 
 llm = ChatOpenAI(
     base_url=os.getenv('API_BASE_URL'),
@@ -27,47 +37,92 @@ llm_with_tools = llm.bind_tools(tools)
 
 memory = MemorySaver()
 
-def call_model(state: MessagesState):
-    messages = state["messages"]
-    response = llm_with_tools.invoke(messages)
-    return {"messages": response}
+planner_sys_msg = SystemMessage(content="""Ты состовляешь планы для технических статей""")
 
-workflow = StateGraph(MessagesState)
-workflow.add_node("agent", call_model)
-workflow.add_node("tools", ToolNode(tools))
+class PlannerResponse(BaseModel):
+    PlanOfArticle: str = Field(description='План статьи')
 
-workflow.add_edge(START, "agent")
-workflow.add_edge("tools", "agent")
-workflow.add_conditional_edges("agent", tools_condition)
+def articles_fetcher_call(state: State):
+    print('articles_fetcher_call')
+    user_message = HumanMessage(f'Получи нужное для уровня аудитории {state['auditory']} колличество статей, из которых можно будет составить свою статью. Используй last_ai_articles_tool. Tool вернет тебе json. Верни только его, ничего не добавляя и не убирая.')
+    agent = create_agent(llm_with_tools, tools=tools)
+    response = agent.invoke({'messages':[user_message]})
+    return {
+        'original_articles': response['messages'][-1].content,
+    }
+
+def planner_agent_call(state: State):
+    print('planner')
+    system_message = SystemMessage(f"Ты должен составить план технической статьи об исскуственном интеллекте для следующего уровня подготовки аудитории {state['auditory']}")
+    user_message = HumanMessage(f"Составь план переписанной статьи на основе следующих базовых статей: {state['original_articles']}")
+    response = llm.with_structured_output(PlannerResponse).invoke([system_message, user_message])
+    return {
+        'plan_of_article': response.PlanOfArticle,
+    }
+
+class CopyrighterResponse(BaseModel):
+    Article: str = Field(description='Текст получившейся статьи')
+
+def copyrighter_agent_call(state: State):
+    print('copyrighter_agent_call')
+    system_message = SystemMessage(content="""Ты технический директор холдинга. Пишешь для социальных сетей.
+                Твой профессиональный интерес управление, искусственный интеллект и надежность.
+                Только качественные тексты без маркетингового буллшита.""")
+    user_message = HumanMessage(f"""Перепиши статью для уровня аудитории: {state['auditory']}")
+                                План статьи:\n{state['plan_of_article']}
+                                Исходные статьи:\n{state['original_articles']}
+                                """)
+    response = llm.with_structured_output(CopyrighterResponse).invoke([system_message, user_message])
+    return {
+        'result': response.Article,
+    }
+
+class RoleAndNews(BaseModel):
+    Auditory: str = Field(description='Уровень аудитории')
+
+#TODO add config and context
+def level_define_agent_call(state: State):
+    print('level_define')
+    user_message = HumanMessage(f"""Определи уровень аудитории по пользовательскому вводу из вариантов:
+                                    - Ничего не знает про IT
+                                    - Программист без знаний ML
+                                    - Junior ML Engineer
+                                    - Middle ML Engineer
+                                    - Senior ML Engineer
+
+                                    Пользовательский ввод: {state['original_prompt']}""")
+    response = llm_with_tools.with_structured_output(RoleAndNews).invoke([user_message])
+    res = {
+        'auditory': response.Auditory,
+    }
+    return res
+
+workflow = StateGraph(State)
+workflow.add_node('level_define', level_define_agent_call)
+workflow.add_node('planner', planner_agent_call)
+workflow.add_node('copyrighter', copyrighter_agent_call)
+workflow.add_node('articles_fetcher', articles_fetcher_call)
+
+workflow.add_edge(START, "level_define")
+workflow.add_edge("level_define", "articles_fetcher")
+workflow.add_edge("articles_fetcher", "planner")
+workflow.add_edge("planner", "copyrighter")
+workflow.add_edge("copyrighter", END)
+
 
 app = workflow.compile(checkpointer=memory)
-
-sys_msg = SystemMessage(content="""Ты технический директор холдинга. Пишешь для социальных сетей.
-            "Твой профессиональный интерес управление, искусственный интеллект и надежность." +
-            "Только качественные тексты без маркетингового буллшита.""")
 
 def main():
     config: RunnableConfig = {
         'configurable': {'thread_id': 1}
     }
 
-    inputs: MessagesState = {
-        'messages': [sys_msg,
-                     HumanMessage(content='Напиши статью про искусственный интеллект. Используй последние статьи и новости. Проверь внешние статьи и новости на качество. При написании статьи избегай код. Только русский текст без программирования. Если ссылаешься на внешнюю статью, то прикладывай гиперссылку. Добавь хэштегов и опубликуй пост.'
-                                  )]
-    }
+    initial_prompt = 'Напиши статью про искусственный интеллект для моей жены стюардессы.'
 
-    for event in app.stream(inputs, config=config):
-        if "agent" in event:
-            print(".", end="", flush=True)
-        if "tools" in event:
-            print(f"[Используем тул]", end="", flush=True)
+    app.invoke({'original_prompt': initial_prompt}, config=config)
 
-    snapshot = app.get_state(config)
-    if snapshot.values["messages"]:
-        last_message = snapshot.values["messages"][-1]
-        if hasattr(last_message, "content"):
-            print(f"\n\n🤖 Ассистент:\n{last_message.content}")
+    state = app.get_state(config)
+    print(state.result)
 
 if __name__ == "__main__":
     main()

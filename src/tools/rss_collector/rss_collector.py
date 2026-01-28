@@ -24,8 +24,8 @@ def _parse_habr_article(link: str) -> str:
     full_text = soup.find('div', class_='article-formatted-body').get_text()
     return full_text
 
-@tool
-def last_ai_articles_tool():
+@tool('last_ai_articles_tool')
+def last_ai_articles_tool(articles_num: int):
     """
     Returns json with fresh articles and news.
 
@@ -39,6 +39,9 @@ def last_ai_articles_tool():
 
     class OriginalArticles(BaseModel):
         articles: list[OriginalArticleData]
+
+    Args:
+        articles_num (int): number of articles to return from 1 to 7
 
     Returns:
         str: json with fresh articles and news
@@ -64,7 +67,7 @@ def last_ai_articles_tool():
 
             articles.append(article)
 
-            if len(articles) >= _MAX_POSTS:
+            if len(articles) >= min(articles_num, _MAX_POSTS):
                 break
 
     return OriginalArticles(articles=articles).model_dump_json()
