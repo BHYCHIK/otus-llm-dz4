@@ -7,12 +7,14 @@ from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.constants import START, END
 from langgraph.graph import StateGraph
+from langfuse.langchain import CallbackHandler as LangfuseCallbackHandler
 
 from dotenv import load_dotenv
 import os
 
 from pydantic import BaseModel, Field
 
+from few_shots import get_examples_of_plans
 from tools.rss_collector import rss_collector
 from tools.vkpost import vkpost
 
@@ -45,7 +47,7 @@ class PlannerResponse(BaseModel):
 def articles_fetcher_call(state: State):
     print('articles_fetcher_call')
     user_message = HumanMessage(f'Получи нужное для уровня аудитории {state['auditory']} колличество статей, из которых можно будет составить свою статью. Используй last_ai_articles_tool. Tool вернет тебе текст, состоящий из нескольких статей. Сохрани их как есть, ничего не модифицируя.')
-    agent = create_agent(llm_with_tools, tools=tools)
+    agent = create_agent(llm_with_tools, tools=tools, name='articles_fetcher')
     response = agent.invoke({'messages':[user_message]})
     return {
         'original_articles': response['messages'][-1].content,
@@ -54,7 +56,12 @@ def articles_fetcher_call(state: State):
 def planner_agent_call(state: State):
     print('planner')
     system_message = SystemMessage(f"Ты должен составить план технической статьи об исскуственном интеллекте для следующего уровня подготовки аудитории {state['auditory']}")
-    user_message = HumanMessage(f"Составь план переписанной статьи на основе следующих базовых статей: {state['original_articles']}")
+    user_message = HumanMessage(f"""Составь план переписанной статьи на основе следующих базовых статей.
+    
+                                Примеры планов:
+                                {get_examples_of_plans()}
+                                
+                                Базовые статьи: {state['original_articles']}""")
     response = llm.with_structured_output(PlannerResponse).invoke([system_message, user_message])
     return {
         'plan_of_article': response.PlanOfArticle,
@@ -96,6 +103,7 @@ def level_define_agent_call(state: State):
     }
     return res
 
+#TODO add gurdrails
 workflow = StateGraph(State)
 workflow.add_node('level_define', level_define_agent_call)
 workflow.add_node('planner', planner_agent_call)
@@ -113,7 +121,8 @@ app = workflow.compile(checkpointer=memory)
 
 def main():
     config: RunnableConfig = {
-        'configurable': {'thread_id': 1}
+        'configurable': {'thread_id': 1},
+        'callbacks': [LangfuseCallbackHandler()],
     }
 
     initial_prompt = 'Напиши статью про искусственный интеллект для моей жены senior ml специалиста.'
@@ -121,7 +130,6 @@ def main():
     app.invoke({'original_prompt': initial_prompt}, config=config)
 
     state = app.get_state(config)
-    print(state)
     print(state.values['result'])
 
 if __name__ == "__main__":
