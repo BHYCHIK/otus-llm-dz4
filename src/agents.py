@@ -68,7 +68,9 @@ def copyrighter_agent_call(state: State):
     user_message = HumanMessage(f"""Напиши статью для уровня аудитории: {state['auditory']}")
                                 План статьи:\n{state['plan_of_article']}\n\n
                                 Не креативь. Обязательно возьми материалы возьми из этих статей:\n{state['original_articles']}
+                                В новой статье сохрани ссылки на оригинал.
                                 """)
+    print(user_message.content)
     response = llm.invoke([system_message, user_message])
     return {
         'result': response.content,
@@ -114,7 +116,7 @@ def main():
         'configurable': {'thread_id': 1}
     }
 
-    initial_prompt = 'Напиши статью про искусственный интеллект для моей жены стюардессы.'
+    initial_prompt = 'Напиши статью про искусственный интеллект для моей жены senior ml специалиста.'
 
     app.invoke({'original_prompt': initial_prompt}, config=config)
 

@@ -16,6 +16,17 @@ class OriginalArticleData(BaseModel):
 class OriginalArticles(BaseModel):
     articles: list[OriginalArticleData]
 
+    def to_text(self) -> str:
+        result = ''
+        for index, article in enumerate(self.articles):
+            result = result + f"""
+            Статья номер {index + 1}.
+            Ссылка на статью: {article.link}
+            Название статьи: {article.title}
+            Текст статьи: {article.full_text}\n\n\n"""
+
+        return result
+
 def _parse_habr_article(link: str) -> str:
     resp = requests.get(link, verify=False)
     if resp.status_code != 200:
@@ -27,26 +38,15 @@ def _parse_habr_article(link: str) -> str:
 @tool('last_ai_articles_tool')
 def last_ai_articles_tool(articles_num: int):
     """
-    Returns json with fresh articles and news.
-
-    json dumps from pydantic class OriginalArticles
-
-    class OriginalArticleData(BaseModel):
-        title: str
-        link: str
-        full_text: str
-        summary: str
-
-    class OriginalArticles(BaseModel):
-        articles: list[OriginalArticleData]
+    Get text, title and link for last ai articles from habr.com
 
     Args:
         articles_num (int): number of articles to return from 1 to 7
 
     Returns:
-        str: json with fresh articles and news
+        str: text, title and link for last ai articles
     """
-    print('Calling last_ai_articles_tool')
+    print(f'Calling last_ai_articles_tool with {articles_num} articles')
     current_utc = time.gmtime()
 
     rss_feed = 'https://habr.com/ru/rss/hubs/artificial_intelligence/articles/?fl=ru'
@@ -70,4 +70,4 @@ def last_ai_articles_tool(articles_num: int):
             if len(articles) >= min(articles_num, _MAX_POSTS):
                 break
 
-    return OriginalArticles(articles=articles).model_dump_json()
+    return OriginalArticles(articles=articles).to_text()
