@@ -28,7 +28,7 @@ class State(TypedDict):
 llm = ChatOpenAI(
     base_url=os.getenv('API_BASE_URL'),
     model='qwen-3-32b',
-    temperature=0.1,
+    temperature=0.3,
     api_key=os.getenv('API_KEY'))
 
 tools = [rss_collector.last_ai_articles_tool, vkpost.post_to_vk_tool]
@@ -44,7 +44,7 @@ class PlannerResponse(BaseModel):
 
 def articles_fetcher_call(state: State):
     print('articles_fetcher_call')
-    user_message = HumanMessage(f'Получи нужное для уровня аудитории {state['auditory']} колличество статей, из которых можно будет составить свою статью. Используй last_ai_articles_tool. Tool вернет тебе json. Верни только его, ничего не добавляя и не убирая.')
+    user_message = HumanMessage(f'Получи нужное для уровня аудитории {state['auditory']} колличество статей, из которых можно будет составить свою статью. Используй last_ai_articles_tool. Tool вернет тебе текст, состоящий из нескольких статей. Сохрани их как есть, ничего не модифицируя.')
     agent = create_agent(llm_with_tools, tools=tools)
     response = agent.invoke({'messages':[user_message]})
     return {
