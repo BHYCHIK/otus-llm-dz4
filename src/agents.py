@@ -20,12 +20,17 @@ from tools.vkpost import vkpost
 
 load_dotenv('.env')
 
+MAX_FIXES = 3
+
 class State(TypedDict):
     original_prompt: str
     auditory: str
     plan_of_article: str
     original_articles: str
     result: str
+    fix_num: int
+    plan_to_fix: str
+    published: bool
 
 llm = ChatOpenAI(
     base_url=os.getenv('API_BASE_URL'),
@@ -77,7 +82,6 @@ def copyrighter_agent_call(state: State):
                                 Не креативь. Обязательно возьми материалы возьми из этих статей:\n{state['original_articles']}
                                 В новой статье сохрани ссылки на оригинал.
                                 """)
-    print(user_message.content)
     response = llm.invoke([system_message, user_message])
     return {
         'result': response.content,
@@ -103,19 +107,93 @@ def level_define_agent_call(state: State):
     }
     return res
 
+def router(state: State):
+    if (state['fix_num'] < MAX_FIXES) and (state['plan_to_fix'] != ''):
+        return 'quality_fixer'
+    else:
+        return 'end'
+
+class QualityCheckerResponse(BaseModel):
+    ListOfFixes: str = Field(description='Список исправлений в статье')
+
+def quality_checker_agent_call(state: State):
+    print('quality_checker_agent_call')
+    system_message = SystemMessage(content="""
+        Ты профессиональный редактор в журнале про искусственный интеллект.
+        Ты выдаешь то, что нужно исправить в статьях или, если все хорошо,
+        отдаешь на публикацию в виде поста в VK.
+    """)
+    user_message = HumanMessage(
+        f"""Тебе на публикацию пришла статья.
+
+        Если статья достаточно хороша для публикации:
+         - сделай с ней пост в VK.
+         - Ответь одним словом "posted"
+
+        Если статья требует правок до публикации, то верни список правок, которые нужно внести.
+
+        Критерии качества статьи:
+         - Нецензурная лексика
+         - Политика
+         - Искажение фактов
+         - Отсутствие логики в статье
+
+        Текст статьи:
+        {state['result']}""")
+
+    agent = create_agent(llm_with_tools, tools=tools, name='quality_checker')
+    content = agent.invoke({'messages': [system_message, user_message]})['messages'][-1].content
+
+    if (content.find('posted') == -1) or (len(content) > 20):
+        return {
+            'plan_to_fix': content,
+        }
+    else:
+        if content.find('posted') >= 0:
+            return {
+                'published': True,
+                'plan_to_fix': '',
+            }
+        else:
+            return {
+                'published': False,
+                'plan_to_fix': '',
+            }
+
+def quality_fixer_agent_call(state: State):
+    print('quality_fixer')
+    system_message = SystemMessage(content="""Ты технический директор холдинга. Пишешь для социальных сетей.
+                Твой профессиональный интерес управление, искусственный интеллект и надежность.
+                Только качественные тексты без маркетингового буллшита.""")
+    user_message = HumanMessage(f"""Исправь статью для уровня аудитории: {state['auditory']}")
+                                Список исправлений:\n{state['plan_to_fix']}\n\n
+                                Статья, которую нужно исправить:\n{state['result']}
+                                """)
+    response = llm.invoke([system_message, user_message])
+    return {
+        'result': response.content,
+        'fix_num': state['fix_num'] + 1,
+    }
+
 #TODO add gurdrails
 workflow = StateGraph(State)
 workflow.add_node('level_define', level_define_agent_call)
 workflow.add_node('planner', planner_agent_call)
 workflow.add_node('copyrighter', copyrighter_agent_call)
 workflow.add_node('articles_fetcher', articles_fetcher_call)
+workflow.add_node('quality_checker', quality_checker_agent_call)
+workflow.add_node('quality_fixer', quality_fixer_agent_call)
 
 workflow.add_edge(START, "level_define")
 workflow.add_edge("level_define", "articles_fetcher")
 workflow.add_edge("articles_fetcher", "planner")
 workflow.add_edge("planner", "copyrighter")
-workflow.add_edge("copyrighter", END)
-
+workflow.add_edge("copyrighter", 'quality_checker')
+workflow.add_conditional_edges('quality_checker', router, {
+    'quality_fixer': 'quality_fixer',
+    'end': END,
+})
+workflow.add_edge("quality_fixer", 'quality_checker')
 
 app = workflow.compile(checkpointer=memory)
 
@@ -127,10 +205,13 @@ def main():
 
     initial_prompt = 'Напиши статью про искусственный интеллект для моей жены senior ml специалиста.'
 
-    app.invoke({'original_prompt': initial_prompt}, config=config)
+    app.invoke({'original_prompt': initial_prompt, 'fix_num': 0}, config=config)
 
     state = app.get_state(config)
-    print(state.values['result'])
+    if state.values['published']:
+        print('Опубликовано')
+    else:
+        print('Не опубликовано')
 
 if __name__ == "__main__":
     main()
