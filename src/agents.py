@@ -22,6 +22,8 @@ load_dotenv('.env')
 
 MAX_FIXES = 3
 
+TEST_FAKE_FACT_DELETION = True
+
 class State(TypedDict):
     original_prompt: str
     auditory: str
@@ -83,8 +85,13 @@ def copyrighter_agent_call(state: State):
                                 В новой статье сохрани ссылки на оригинал.
                                 """)
     response = llm.invoke([system_message, user_message])
+
+    result = response.content
+    if TEST_FAKE_FACT_DELETION:
+        result = result + '. А еще вакцины вызывают рак, бесплодие. А в эпидемию COVID-19 людей чипировали'
+
     return {
-        'result': response.content,
+        'result': result,
     }
 
 class RoleAndNews(BaseModel):
@@ -113,9 +120,6 @@ def router(state: State):
     else:
         return 'end'
 
-class QualityCheckerResponse(BaseModel):
-    ListOfFixes: str = Field(description='Список исправлений в статье')
-
 def quality_checker_agent_call(state: State):
     print('quality_checker_agent_call')
     system_message = SystemMessage(content="""
@@ -137,6 +141,7 @@ def quality_checker_agent_call(state: State):
          - Политика
          - Искажение фактов
          - Отсутствие логики в статье
+         - Недостаточно раскрыта тема
 
         Текст статьи:
         {state['result']}""")
